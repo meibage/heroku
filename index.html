@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>AR Video</title>
+
+<script type="text/javascript" src="libs/polyfill.js"></script>
+<script type="text/javascript" src="cv.js"></script>
+<script type="text/javascript" src="aruco.js"></script>
+
+<script>
+var video;
+var canvas;
+var canvasL;
+var canvasR;
+var canvasZL;
+var canvasZR;
+var canvasX;
+
+var context;
+var contextL;
+var contextR;
+var contextZL;
+var contextZR;
+var contextX;
+
+var imageData;
+var detector;
+
+var debcanvas;
+var debctx;
+var width;
+var height;
+
+var video2;
+var canvas2L;
+var canvas2R;
+var context2L;
+var context2R;
+
+var debug;
+
+function getMedia() {
+    var ids = new Array();
+
+    //MediaStreamTrack.getSources(function (media_sources) {
+    navigator.mediaDevices.enumerateDevices().then(function (media_sources) {
+    for (var i=0; i < media_sources.length; i++) {
+        if ( media_sources[i].kind == "videoinput" ) {
+//			debug.innerHTML += "label: [" + media_sources[i].label + "], kind: " + media_sources[i].kind + ", id: "+ media_sources[i].deviceId + "<br>";
+			ids.push(media_sources[i].deviceId);
+        }
+    }
+//	debug.innerHTML += "(0)" + ids[0] + "<br>";
+//	debug.innerHTML += "(1)" + ids[1] + "<br>";
+
+    navigator.getUserMedia(
+    {video: {optional: [{width: 800},{height: 600}, {sourceId: ids[1]}]}}, /* debug 時には，ここの添字を 0/1 適当に変更して実行．*/
+    function(localMediaStream) {
+		video.src = window.URL.createObjectURL(localMediaStream);
+    },
+    function(err) {
+        alert('カメラから映像を取得することができませんでした。');
+        console.log(err);
+    }
+    );
+    });
+}
+
+function init(){
+
+	alert("===AR Video===\nzoom:a/s\neyespan:z/x\nscale:+/-\nalpha:o/p\nposition:h(left)j(down)k(up)l(right)");
+
+	debcanvas = document.getElementById("debcanvas");
+	debctx = debcanvas.getContext("2d");
+    debug = document.getElementById("debug");
+
+	video = document.getElementById("video");
+	canvas = document.getElementById("canvas");
+	canvasL = document.getElementById("canvasL");
+	canvasR = document.getElementById("canvasR");
+	canvasZL = document.getElementById("canvasZL");
+	canvasZR = document.getElementById("canvasZR");
+	canvasX = document.getElementById("canvasX");
+
+	context = canvas.getContext("2d");
+	contextL = canvasL.getContext("2d");
+	contextR = canvasR.getContext("2d");
+	contextZL = canvasZL.getContext("2d");
+	contextZR = canvasZR.getContext("2d");
+	contextX = canvasX.getContext("2d");
+
+	canvas.width    = parseInt(canvas.style.width);
+	canvas.height   = parseInt(canvas.style.height);
+	canvasL.width   = parseInt(canvasL.style.width);
+	canvasL.height  = parseInt(canvasL.style.height);
+	canvasR.width   = parseInt(canvasR.style.width);
+	canvasR.height  = parseInt(canvasR.style.height);
+	canvasZL.width  = parseInt(canvasZL.style.width);
+	canvasZL.height = parseInt(canvasZL.style.height);
+	canvasZR.width  = parseInt(canvasZR.style.width);
+	canvasZR.height = parseInt(canvasZR.style.height);
+
+	width = canvasL.width;
+	height = canvasL.height;
+
+	video2 = document.getElementById("video2");
+
+	//注射針を刺す座標
+	var cx = 318;
+	var cy = 185;
+
+	debDrawLine( cx-50, cy, cx+50, cy, "#000", contextX );
+	debDrawLine( cx, cy-50, cx, cy+50, "#000", contextX );
+    canvas2L = document.getElementById("canvas2L");
+    canvas2R = document.getElementById("canvas2R");
+    context2L = canvas2L.getContext("2d");
+    context2R = canvas2R.getContext("2d");
+
+	navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+
+	if (navigator.getUserMedia){
+
+		/*
+		function successCallback(stream){
+			//if (window.webkitURL) {
+			if (window.URL) {
+				//video.src = window.webkitURL.createObjectURL(stream);
+				video.src = window.URL.createObjectURL(stream);
+			} else if (video.mozSrcObject !== undefined) {
+				video.mozSrcObject = stream;
+			} else {
+				video.src = stream;
+			}
+		}
+		function errorCallback(error){
+		}
+		navigator.getUserMedia({video: true}, successCallback, errorCallback);
+		*/
+		getMedia();
+		detector = new AR.Detector();
+		requestAnimationFrame(tick);
+	}
+}
+
+var cnrs = new Array(4);
+for( var i = 0; i < 4; i ++ ) cnrs[i] = {x:null, y:null};
+
+function tick(){
+	requestAnimationFrame(tick);
+
+	if (video.readyState === video.HAVE_ENOUGH_DATA){
+		snapshot();
+		markers = detector.detect(imageData);
+		if( markers.length != 0 ){
+			for( var i = 0; i < 4; i ++ ){
+				cnrs[i].x = markers[0].corners[i].x;
+				cnrs[i].y = markers[0].corners[i].y;
+			}
+		}
+		if( markers.length != 0 ){
+			//drawCorners(markers);
+			//drawId(markers);
+			movingAverage(markers);
+		}
+		if( cnrs[0].x !== null ) drawCorners();
+		snapshot2();
+	}
+	context2L.globalAlpha = alpha;
+	context2R.globalAlpha = alpha;
+	var vzoom = vheight / video2.height * 2 * scale;
+	var xL = (offset.x+dif.x - (canvas.width-canvasL.width/zoom)/2 +eyespan)*zoom - video2.width*vzoom/2;
+	var xR = (offset.x+dif.x - (canvas.width-canvasL.width/zoom)/2 -eyespan)*zoom - video2.width*vzoom/2;
+	var y = (offset.y+dif.y - (canvas.height-canvasL.height/zoom)/2)*zoom;
+	context2L.clearRect( 0, 0, canvas2L.width, canvas2L.height );
+	context2L.drawImage(video2, xL, y, video2.width*vzoom, video2.height*vzoom );
+	context2R.clearRect( 0, 0, canvas2R.width, canvas2R.height );
+	context2R.drawImage(video2, xR, y, video2.width*vzoom, video2.height*vzoom );
+	context2R.drawImage(canvasX, xR, y, video2.width*vzoom, video2.height*vzoom );
+}
+
+var offset = {x:0, y:0};
+var vheight = 480;
+
+var zoom = 1-22*0.02;
+var zoomd = 0;
+var eyespan = 5*18;
+var eyespand = 0;
+var dif = {x:0, y:-100};
+var difd = {x:0, y:0};
+var scale = 1/Math.pow(0.9,7);
+var scaled = 0;
+var alpha = 0.5;
+var alphad = 0;
+
+document.onkeydown = function(e){
+	if( e.key == "q" ){
+		alert("===AR Video===\nzoom:a/s\neyespan:z/x\nscale:+/-\nalpha:o/p\nposition:h(left)j(down)k(up)l(right)");
+	} else if( e.key == "l" ){ //left key
+		dif.x += 1;
+		difd.x ++;
+	} else if( e.key == "k" ){ //up key
+		dif.y -= 1;
+		difd.y --;
+	} else if( e.key == "h" ){ //right key
+		dif.x -= 1;
+		difd.x --;
+	} else if( e.key == "j" ){ //down key
+		dif.y += 1;
+		difd.y ++;
+	} else if( e.keyCode == 189 ){ //scale -
+		scale *= 0.9;
+		scaled --;
+	} else if( e.keyCode == 187 ){ //scale +
+		scale *= 1/0.9;
+		scaled ++;
+	} else if( e.key == "p" && alpha < 1 ){
+		alpha += 0.1;
+		alphad ++;
+	} else if( e.key == "o" && alpha > 0.1 ){
+		alpha -= 0.1;
+		alphad --;
+	} else if( e.key == "a" ){
+		zoom += 0.02;
+		zoomd ++;
+	} else if( e.key == "s" && zoom > 0.04 ){
+		zoom -= 0.02;
+		zoomd --;
+	} else if( e.key == "z" && eyespan < 150 ){
+		eyespan += 5;
+		eyespand ++;
+	} else if( e.key == "x" && eyespan > -150 ){
+		eyespan -= 5;
+		eyespand --;
+	}
+	console.log( zoom, eyespan, scale, alpha, dif );
+	debug.innerHTML = "zoom="+zoomd+" eyespan="+eyespand+" scale="+scaled+" alpha="+alphad+" pos=("+difd.x+","+difd.y+")";
+}
+
+function snapshot(){
+	context.drawImage(video, 0, 0, canvas.width, canvas.height);
+	imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+function snapshot2(){
+	var dcw = canvas.width;
+	var dch = canvas.height;
+	var dvw = canvasL.width;
+	var dvh = canvasL.height;
+
+	var x = (dcw-dvw/zoom)/2;
+	var y = (dch-dvh/zoom)/2;
+
+	var img;
+	img = context.getImageData(x-eyespan, y, dvw/zoom, dvh/zoom);
+	contextZL.putImageData(img, 0, 0);
+	contextL.clearRect( 0, 0, dvw, dvh );
+	contextL.drawImage( canvasZL, 0, 0, dvw/zoom, dvh/zoom, 0, 0, dvw, dvh );
+
+	img = context.getImageData(x+eyespan, y, dvw/zoom, dvh/zoom);
+	contextZR.putImageData(img, 0, 0);
+	contextR.clearRect( 0, 0, dvw, dvh );
+	contextR.drawImage( canvasZR, 0, 0, dvw/zoom, dvh/zoom, 0, 0, dvw, dvh );
+}
+
+var mval = 10;
+var mvai = -1;
+var pcnr = [];
+var scnr = [];
+
+function movingAverage( markers ){
+	var corners = markers[0].corners;
+	if( mvai == -1 ){
+		for( var i = 0; i < 4; i ++ ){
+			scnr[i] = {x:0, y:0};
+			pcnr[i] = [];
+			for( k = 0; k < mval; k ++ ) pcnr[i][k] = {x:0, y:0};
+		}
+		mvai = 0;
+	}
+	for( var i = 0; i < 4; i ++ ){
+		scnr[i].x -= pcnr[i][mvai].x;
+		scnr[i].y -= pcnr[i][mvai].y;
+		pcnr[i][mvai].x = corners[i].x / mval;
+		pcnr[i][mvai].y = corners[i].y / mval;
+		scnr[i].x += pcnr[i][mvai].x;
+		scnr[i].y += pcnr[i][mvai].y;
+	}
+	mvai = (mvai+1) % mval;
+
+	var xx = 0;
+	var yy = 0;
+	for( var i = 0; i < 4; i ++ ){
+		xx += scnr[i].x;
+		yy += scnr[i].y;
+	}
+	offset = {x:xx/4, y:yy/4};
+	xx = scnr[0].x - scnr[1].x;
+	yy = scnr[0].y - scnr[1].y;
+	vheight = Math.sqrt( xx * xx + yy * yy );
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////
+
+function drawCorners(){
+	var corners, corner, i, j;
+
+	context.lineWidth = 3;
+
+	context.strokeStyle = "red";
+	context.beginPath();
+
+	for( j = 0; j < 4; j++ ){
+		corner = cnrs[j];
+		context.moveTo(corner.x, corner.y);
+		corner = cnrs[(j + 1) % 4];
+		context.lineTo(corner.x, corner.y);
+	}
+
+	context.stroke();
+	context.closePath();
+
+	context.strokeStyle = "green";
+	context.strokeRect(cnrs[0].x - 2, cnrs[0].y - 2, 4, 4);
+}
+
+function drawId(markers){
+
+	var corners, corner, x, y, i, j;
+
+	context.strokeStyle = "blue";
+	context.lineWidth = 1;
+
+	for (i = 0; i !== markers.length; ++ i){
+		corners = markers[i].corners;
+		x = Infinity;
+		y = Infinity;
+		for (j = 0; j !== corners.length; ++ j){
+			corner = corners[j];
+			x = Math.min(x, corner.x);
+			y = Math.min(y, corner.y);
+		}
+		context.strokeText(markers[i].id, x, y)
+	}
+}
+
+function debDrawString( x, y, str, col, debctx ){
+
+	debctx.strokeStyle = col;
+	debctx.lineWidth = 1;
+	debctx.strokeText(str, x, y)
+}
+
+function debDrawLine( xx1, yy1, xx2, yy2, col, debctx ){
+	debctx.lineWidth = 1;
+	debctx.beginPath();
+	debctx.moveTo(xx1,yy1);
+	debctx.lineTo(xx2,yy2);
+	debctx.closePath();
+	debctx.strokeStyle=col;
+	debctx.stroke();
+}
+
+function debDrawDot( xx1, yy1, col, size, debctx ){
+	debctx.fillStyle = col;
+	debctx.fillRect(xx1-(size/2),yy1-(size/2),size,size);
+}
+
+function debDrawRect( xx1, yy1, col, size ){
+	debctx.strokeStyle=col;
+	debctx.strokeRect(xx1-(size/2),yy1-(size/2),size,size);
+}
+
+function debClear( x1, y1, x2, y2, debctx ){
+	debctx.clearRect( x1, y1, x2, y2 );
+}
+
+window.onload = init;
+
+</script>
+
+</head>
+
+<body>
+<video id="video" width="800" height="600" autoplay="true" style="z-index:1;position:absolute;top:1000px;left:0;display:block;"></video>
+<canvas id="canvas" style="width:800px;height:600px;z-index:2;position:absolute;top:500px;left:0;display:none"></canvas>
+<canvas id="canvasZL" style="width:800px;height:600px;z-index:2;position:absolute;top:0;left:0;display:none"></canvas>
+<canvas id="canvasZR" style="width:800px;height:600px;z-index:2;position:absolute;top:0;left:0;display:none"></canvas>
+<canvas id="canvasL" style="width:450px;height:480px;z-index:2;position:absolute;top:0;left:0;"></canvas>
+<canvas id="canvasR" style="width:450px;height:480px;z-index:2;position:absolute;top:0;left:450px;"></canvas>
+
+<canvas id="debcanvas" style="width:499px; height:480px;"></canvas>
+
+<canvas id="canvas2L" width="450" height="480" style="z-index:10;position:absolute;top:0;left:0;display:block"></canvas>
+<canvas id="canvas2R" width="450" height="480" style="z-index:10;position:absolute;top:0;left:450px;display:block"></canvas>
+
+<video id="video2" width="640" height="360" style="z-index:4;position:absolute;top:520px;left:0" autoplay="true" src="VR.webm" loop controls></video>
+
+<canvas id="canvasX" width="640" height="360" style="z-index:5;position:absolute;top:520px;left:0;display:none"></canvas>
+
+<div id="debug" style="z-index:20;position:absolute;top:0;left:0;background-color:#FFF">zoom:a/s, eyespan:z/x, scale:+/-</div>
+</body>
+
+</html>
